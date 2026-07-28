@@ -1,0 +1,13 @@
+diff --git a/node_modules/@dev-amirzubair/react-native-voice/plugin/build/withVoice.js b/node_modules/@dev-amirzubair/react-native-voice/plugin/build/withVoice.js
+index 02aaf53..0043d20 100644
+--- a/node_modules/@dev-amirzubair/react-native-voice/plugin/build/withVoice.js
++++ b/node_modules/@dev-amirzubair/react-native-voice/plugin/build/withVoice.js
+@@ -1,7 +1,7 @@
+ "use strict";
+ Object.defineProperty(exports, "__esModule", { value: true });
+ const config_plugins_1 = require("@expo/config-plugins");
+-const pkg = require('@react-native-voice/voice/package.json');
++const pkg = require('@dev-amirzubair/react-native-voice/package.json');
+ const MICROPHONE = 'Allow $(PRODUCT_NAME) to access the microphone';
+ const SPEECH_RECOGNITION = 'Allow $(PRODUCT_NAME) to securely recognize user speech';
+ /**

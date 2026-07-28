@@ -1,0 +1,26 @@
+{
+  "name": "the-audio",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "@dev-amirzubair/react-native-voice": "^1.0.4",
+    "expo": "~57.0.4",
+    "expo-camera": "~57.0.1",
+    "expo-speech": "~57.0.0",
+    "expo-status-bar": "~57.0.0",
+    "react": "19.2.3",
+    "react-native": "0.86.0",
+    "react-native-permissions": "^5.6.0"
+  },
+  "scripts": {
+    "postinstall": "patch-package",
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "private": true,
+  "devDependencies": {
+    "patch-package": "^8.0.1"
+  }
+}

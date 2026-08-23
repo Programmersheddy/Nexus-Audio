@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 // ─── Gemini API Configuration ───────────────────────────────────────────────
-// Replace the empty string with your Gemini API key from:
-// https://aistudio.google.com/app/apikey
-const GEMINI_API_KEY = 'AQ.Ab8RN6I9OKhlmmHUwArk1xvYGlUOGeUh0Spah-wRofEvAzcvSA'; // <-- PASTE YOUR KEY HERE
-const GEMINI_API_URL =
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+const DEFAULT_GEMINI_API_KEY = ''; // Enter your Gemini API key via the Settings (⚙️) button in the app
 // ────────────────────────────────────────────────────────────────────────────
 import {
   StyleSheet,
@@ -19,6 +17,8 @@ import {
   StatusBar,
   Dimensions,
   Platform,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Speech from 'expo-speech';
@@ -34,6 +34,11 @@ export default function App() {
   const [recognizedText, setRecognizedText] = useState('');
   const [logs, setLogs] = useState([]);
   const [base64Info, setBase64Info] = useState(null);
+
+  // Gemini API key state management
+  const [geminiApiKey, setGeminiApiKey] = useState(DEFAULT_GEMINI_API_KEY);
+  const [isSettingsVisible, setIsSettingsVisible] = useState(false);
+  const [tempApiKey, setTempApiKey] = useState('');
 
   // Permissions
   // NOTE: useCameraPermissions() covers camera only.
@@ -89,6 +94,24 @@ export default function App() {
     setLogs((prev) => [`[${time}] ${message}`, ...prev.slice(0, 19)]);
   };
 
+  // Load saved Gemini API key on mount
+  useEffect(() => {
+    const loadApiKey = async () => {
+      try {
+        const savedKey = await AsyncStorage.getItem('gemini_api_key');
+        if (savedKey !== null && savedKey.trim() !== '') {
+          setGeminiApiKey(savedKey.trim());
+          addLog('[System] Custom Gemini API key loaded successfully.');
+        } else {
+          addLog('[System] Using default Gemini API key.');
+        }
+      } catch (err) {
+        addLog(`[Error] Failed to load custom API key: ${err.message}`);
+      }
+    };
+    loadApiKey();
+  }, []);
+
   // Speaks feedback and restarts listening afterward — but ONLY if
   // the user had explicitly activated listening before this speech began.
   const speakAndListen = (text) => {
@@ -136,9 +159,20 @@ export default function App() {
     addLog(`[Voice] Heard: "${text}"`);
     const cleanText = text.toLowerCase().trim();
 
-    if (cleanText.includes('camera') || cleanText.includes('open camera') || cleanText.includes('go to camera')) {
-      navigateTo('camera');
+    // ⚠️ Order matters: more-specific checks FIRST to avoid false matches.
+    // "take picture" / vision commands — must come before 'camera' check
+    if (
+      cleanText.includes('take picture') ||
+      cleanText.includes('take a picture') ||
+      cleanText.includes('capture') ||
+      cleanText.includes('describe') ||
+      cleanText.includes('scan') ||
+      (cleanText.includes('see') && !cleanText.includes('camera'))
+    ) {
+      triggerVisionCapture();
+      // Go home / navigation back — before generic 'camera' to avoid misfires
     } else if (
+      cleanText.includes('go home') ||
       cleanText.includes('home') ||
       cleanText.includes('go back') ||
       cleanText.includes('back') ||
@@ -146,14 +180,13 @@ export default function App() {
       cleanText.includes('close')
     ) {
       navigateTo('home');
+      // Open camera
     } else if (
-      cleanText.includes('take picture') ||
-      cleanText.includes('capture') ||
-      cleanText.includes('describe') ||
-      cleanText.includes('scan') ||
-      cleanText.includes('see')
+      cleanText.includes('camera') ||
+      cleanText.includes('open camera') ||
+      cleanText.includes('go to camera')
     ) {
-      triggerVisionCapture();
+      navigateTo('camera');
     } else if (cleanText.includes('help') || cleanText.includes('instruction')) {
       readHelpInstructions();
     } else {
@@ -178,7 +211,7 @@ export default function App() {
         finalResultFiredRef.current = false;
         setVoiceStatus('listening');
         // Destroy any prior session first; ignore errors if never initialized
-        try { await Voice.destroy(); } catch (_) {}
+        try { await Voice.destroy(); } catch (_) { }
         await Voice.start('en-US');
 
       } else if (status === RESULTS.DENIED) {
@@ -190,7 +223,7 @@ export default function App() {
           lastPartialRef.current = '';
           finalResultFiredRef.current = false;
           setVoiceStatus('listening');
-          try { await Voice.destroy(); } catch (_) {}
+          try { await Voice.destroy(); } catch (_) { }
           await Voice.start('en-US');
         } else {
           // User said no — stop retrying; they must tap the button again
@@ -256,16 +289,15 @@ export default function App() {
       isTransitioningRef.current = true;
       setCurrentScreen('camera');
 
-      // Stop listening, announce navigation, then wait for mount before taking picture
+      // Stop listening, announce navigation, then restart mic so user can say "take picture"
       Voice.stop().catch(() => { });
       setVoiceStatus('speaking');
 
-      Speech.speak('Opening camera for vision scan. Hold steady.', {
+      Speech.speak('Camera is open. Say take picture to scan.', {
         onDone: () => {
-          setTimeout(() => {
-            isTransitioningRef.current = false;
-            captureAndProcessImage();
-          }, 1500); // Allow camera layout to mount and settle
+          isTransitioningRef.current = false;
+          // Restart listening so the user's "take picture" command is heard
+          startListening();
         },
         onError: () => {
           isTransitioningRef.current = false;
@@ -279,38 +311,82 @@ export default function App() {
   };
 
   // Core smart vision capture function
-  const captureAndProcessImage = async () => {
-    if (!cameraRef.current) {
-      addLog('[Error] Camera reference not ready.');
-      speakAndListen('Sorry, the camera is not initialized yet.');
-      return;
-    }
+  const captureAndProcessImage = async (isRetry = false, retryPhotoData = null) => {
+    let photoData = retryPhotoData;
 
-    setVoiceStatus('processing_vision');
-    addLog('[Camera] Snapping photo and formatting to Base64...');
-
-    try {
-      // 1. Capture base64 string directly from expo-camera
-      const options = { base64: true, quality: 0.5, skipProcessing: false };
-      const photo = await cameraRef.current.takePictureAsync(options);
-
-      if (!photo || !photo.base64) {
-        throw new Error('No base64 data returned from camera');
+    if (!photoData) {
+      if (!cameraRef.current) {
+        addLog('[Error] Camera reference not ready.');
+        speakAndListen('Sorry, the camera is not initialized yet.');
+        return;
       }
 
-      setBase64Info({
-        uri: photo.uri,
-        length: photo.base64.length,
-        preview: photo.base64.substring(0, 50) + '...',
-      });
+      // 1. Pause listening so the mic does not intercept background noise
+      isListeningActiveRef.current = false;
+      try {
+        await Voice.stop();
+        await Voice.destroy();
+      } catch (err) {
+        console.warn('Unable to fully stop voice before capture:', err);
+      }
 
-      addLog(`[Success] Base64 formatted: ${photo.base64.length} characters.`);
+      setVoiceStatus('processing_vision');
+      addLog('[Camera] Snapping photo — please hold steady...');
+
+      // Give the camera sensor 800 ms to warm up (auto-focus, auto-exposure)
+      // before snapping — avoids blurry / dark first-frame captures.
+      await new Promise((resolve) => setTimeout(resolve, 800));
+
+      try {
+        // 2. Capture raw image path from expo-camera (without base64 for speed)
+        const options = { base64: false, quality: 0.8, skipProcessing: false };
+        const photo = await cameraRef.current.takePictureAsync(options);
+
+        if (!photo || !photo.uri) {
+          throw new Error('No image returned from camera');
+        }
+
+        addLog('[Camera] Optimizing image size...');
+        // Resize width to max 1024px (maintaining aspect ratio) and compress to 0.5
+        const manipResult = await ImageManipulator.manipulateAsync(
+          photo.uri,
+          [{ resize: { width: 1024 } }],
+          { compress: 0.5, base64: true }
+        );
+
+        if (!manipResult || !manipResult.base64) {
+          throw new Error('Failed to encode optimized image to Base64');
+        }
+
+        photoData = manipResult.base64;
+
+        setBase64Info({
+          uri: manipResult.uri,
+          length: manipResult.base64.length,
+          preview: manipResult.base64.substring(0, 50) + '...',
+        });
+        addLog(`[Success] Base64 formatted: ${manipResult.base64.length} characters.`);
+      } catch (err) {
+        console.error('Capture/manipulation error:', err);
+        addLog(`[Error] Camera capture failed: ${err.message}`);
+        speakAndListen('Sorry, I failed to capture the image. Please try again.');
+        setCurrentScreen('home');
+        return;
+      }
+    }
+
+    try {
       addLog('[Gemini] Sending image to Gemini 2.0 Flash...');
+      if (isRetry) {
+        Speech.speak('Connection slow. Retrying analysis.');
+      } else {
+        Speech.speak('Analyzing image, please wait.');
+      }
 
-      // 2. Send to Gemini 2.0 Flash via REST API
-      if (!GEMINI_API_KEY) {
-        addLog('[Error] No Gemini API key set. Please add your key in App.js.');
-        speakAndListen('Vision is not configured. Please add a Gemini API key.');
+      // 3. Send to Gemini 2.0 Flash via REST API
+      if (!geminiApiKey) {
+        addLog('[Error] No Gemini API key set. Please configure it in Settings.');
+        speakAndListen('Vision is not configured. Please open settings and add an API key.');
         return;
       }
 
@@ -319,12 +395,12 @@ export default function App() {
           {
             parts: [
               {
-                text: 'Describe what you see in this image in a clear, natural, 2 to 3 sentence response. Speak directly as if you are a helpful voice assistant describing the scene to someone who cannot see.',
+                text: 'Describe what is in front of this user clearly and concisely in 2 sentences for a blind person.',
               },
               {
                 inlineData: {
                   mimeType: 'image/jpeg',
-                  data: photo.base64,
+                  data: photoData,
                 },
               },
             ],
@@ -336,11 +412,22 @@ export default function App() {
         },
       };
 
-      const response = await fetch(GEMINI_API_URL, {
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
+
+      // Create an AbortController for a 5-second fetch timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, 5000);
+
+      const response = await fetch(geminiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errText = await response.text();
@@ -357,21 +444,50 @@ export default function App() {
 
       Speech.speak(aiText, {
         onDone: () => {
+          addLog('[System] Description spoken. Resuming listener.');
           setCurrentScreen('home');
-          Speech.speak('Returning to home dashboard.', {
-            onDone: () => startListening(),
-          });
+          setVoiceStatus('idle');
+          startListening();
         },
         onError: () => {
+          addLog('[System] Speech failed. Resuming listener.');
           setCurrentScreen('home');
+          setVoiceStatus('idle');
           startListening();
         },
       });
 
     } catch (err) {
-      console.error('Capture/AI error:', err);
+      console.error('API error:', err);
+
+      const isTimeout = err.name === 'AbortError' || err.message.includes('timeout') || err.message.includes('aborted');
+
+      if (isTimeout) {
+        addLog('[Error] Request timed out after 5 seconds.');
+        if (!isRetry) {
+          addLog('[System] Initiating automatic retry...');
+          Speech.speak('Network is slow, trying again.');
+          // Small delay before retrying to let TTS start
+          setTimeout(() => {
+            captureAndProcessImage(true, photoData);
+          }, 1500);
+          return;
+        } else {
+          addLog('[Error] Retry attempt also timed out.');
+          speakAndListen('Network connection timed out. Please try again later.');
+          setCurrentScreen('home');
+          return;
+        }
+      }
+
       addLog(`[Error] Vision pipeline failed: ${err.message}`);
+      if (err.message.includes('429')) {
+        addLog('[Tip] Quota exceeded. Set your own API key in Settings (⚙️).');
+      } else if (err.message.includes('400') || err.message.includes('key')) {
+        addLog('[Tip] Invalid API key. Please check your API key in Settings (⚙️).');
+      }
       speakAndListen('Sorry, I encountered an error with the vision analysis. Please try again.');
+      setCurrentScreen('home');
     }
   };
 
@@ -500,7 +616,7 @@ export default function App() {
       isListeningActiveRef.current = false;
       Voice.destroy().then(Voice.removeAllListeners);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run once on mount only — not on every permission state change
 
   // Render requesting state if camera permission is not loaded yet
@@ -559,9 +675,21 @@ export default function App() {
       {/* Top Banner showing app status */}
       <View style={styles.header}>
         <Text style={styles.logo}>NEXUS <Text style={styles.logoLight}>AUDIO</Text></Text>
-        <View style={styles.statusBadgeContainer}>
-          <View style={[styles.statusDot, { backgroundColor: getStatusColor(voiceStatus) }]} />
-          <Text style={styles.statusLabel}>{voiceStatus.toUpperCase()}</Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.settingsButton}
+            onPress={() => {
+              setTempApiKey(geminiApiKey === DEFAULT_GEMINI_API_KEY ? '' : geminiApiKey);
+              setIsSettingsVisible(true);
+            }}
+            accessibilityLabel="Open settings"
+          >
+            <Text style={styles.settingsButtonText}>⚙️</Text>
+          </TouchableOpacity>
+          <View style={styles.statusBadgeContainer}>
+            <View style={[styles.statusDot, { backgroundColor: getStatusColor(voiceStatus) }]} />
+            <Text style={styles.statusLabel}>{voiceStatus.toUpperCase()}</Text>
+          </View>
         </View>
       </View>
 
@@ -638,7 +766,7 @@ export default function App() {
           /* Live Camera Preview Screen */
           <View style={styles.cameraContainer}>
             <CameraView
-              style={StyleSheet.absoluteFillObject}
+              style={styles.camera}
               ref={cameraRef}
               facing="back"
             />
@@ -692,6 +820,102 @@ export default function App() {
           )}
         </ScrollView>
       </View>
+
+      {/* Settings Modal */}
+      <Modal
+        visible={isSettingsVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsSettingsVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Gemini API Settings</Text>
+            <Text style={styles.modalDescription}>
+              Configure your custom Gemini API key to avoid 429 quota limits. Get a free API key from:
+            </Text>
+            <Text
+              style={styles.linkText}
+              onPress={() => {
+                addLog('[System] Visit https://aistudio.google.com/app/apikey to get a key.');
+              }}
+            >
+              https://aistudio.google.com/app/apikey
+            </Text>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Gemini API Key</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="AIzaSy..."
+                placeholderTextColor="#64748B"
+                value={tempApiKey}
+                onChangeText={setTempApiKey}
+                secureTextEntry={true}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Text style={styles.inputHelp}>
+                {geminiApiKey === DEFAULT_GEMINI_API_KEY
+                  ? 'Currently using the shared default key (runs out of quota easily).'
+                  : 'Currently using your custom API key.'}
+              </Text>
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setIsSettingsVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.saveButton]}
+                onPress={async () => {
+                  try {
+                    const trimmedKey = tempApiKey.trim();
+                    if (trimmedKey === '') {
+                      // Reset to default
+                      await AsyncStorage.removeItem('gemini_api_key');
+                      setGeminiApiKey(DEFAULT_GEMINI_API_KEY);
+                      addLog('[System] Reset Gemini API key to default.');
+                    } else {
+                      await AsyncStorage.setItem('gemini_api_key', trimmedKey);
+                      setGeminiApiKey(trimmedKey);
+                      addLog('[System] Custom Gemini API key saved successfully.');
+                    }
+                    setIsSettingsVisible(false);
+                  } catch (err) {
+                    addLog(`[Error] Failed to save API key: ${err.message}`);
+                  }
+                }}
+              >
+                <Text style={styles.saveButtonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+
+            {geminiApiKey !== DEFAULT_GEMINI_API_KEY && (
+              <TouchableOpacity
+                style={styles.resetButton}
+                onPress={async () => {
+                  try {
+                    await AsyncStorage.removeItem('gemini_api_key');
+                    setGeminiApiKey(DEFAULT_GEMINI_API_KEY);
+                    setTempApiKey('');
+                    addLog('[System] Reset Gemini API key to default.');
+                    setIsSettingsVisible(false);
+                  } catch (err) {
+                    addLog(`[Error] Failed to reset API key: ${err.message}`);
+                  }
+                }}
+              >
+                <Text style={styles.resetButtonText}>Reset to Default Key</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -719,6 +943,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#090D16', // Sleek dark body
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   loadingContainer: {
     flex: 1,
@@ -736,6 +961,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#090D16',
     justifyContent: 'center',
     padding: 24,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 24 : 24,
   },
   glassCard: {
     backgroundColor: '#1E293B',
@@ -1080,5 +1306,129 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: 'bold',
     letterSpacing: 0.5,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  settingsButton: {
+    backgroundColor: '#1E293B',
+    padding: 8,
+    borderRadius: 50,
+    borderWidth: 1,
+    borderColor: '#334155',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  settingsButtonText: {
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(9, 13, 22, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#1E293B',
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#334155',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  modalDescription: {
+    color: '#94A3B8',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  linkText: {
+    color: '#6366F1',
+    fontSize: 14,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 20,
+    textDecorationLine: 'underline',
+  },
+  inputContainer: {
+    width: '100%',
+    marginBottom: 24,
+  },
+  inputLabel: {
+    color: '#E2E8F0',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  textInput: {
+    backgroundColor: '#0F172A',
+    borderColor: '#334155',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    color: '#FFFFFF',
+    fontSize: 15,
+  },
+  inputHelp: {
+    color: '#64748B',
+    fontSize: 12,
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#334155',
+  },
+  cancelButtonText: {
+    color: '#E2E8F0',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  saveButton: {
+    backgroundColor: '#6366F1',
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  resetButton: {
+    marginTop: 16,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  resetButtonText: {
+    color: '#EF4444',
+    fontSize: 13,
+    fontWeight: 'bold',
   },
 });

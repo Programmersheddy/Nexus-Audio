@@ -51,6 +51,9 @@ export default function App() {
   const voiceStatusRef = useRef(voiceStatus);
   const cameraRef = useRef(null);
   const isTransitioningRef = useRef(false);
+  const isCapturingRef = useRef(false);
+  const geminiApiKeyRef = useRef(DEFAULT_GEMINI_API_KEY);
+  const processCommandRef = useRef(null);
   // Tracks whether the user has explicitly activated listening.
   // onSpeechEnd / onSpeechError only auto-restart when this is true,
   // preventing the mic from engaging without the user's direct action.
@@ -64,6 +67,7 @@ export default function App() {
   // Sync refs
   useEffect(() => { currentScreenRef.current = currentScreen; }, [currentScreen]);
   useEffect(() => { voiceStatusRef.current = voiceStatus; }, [voiceStatus]);
+  useEffect(() => { geminiApiKeyRef.current = geminiApiKey; }, [geminiApiKey]);
 
   // Pulsing animation for the listening indicator
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -100,7 +104,9 @@ export default function App() {
       try {
         const savedKey = await AsyncStorage.getItem('gemini_api_key');
         if (savedKey !== null && savedKey.trim() !== '') {
-          setGeminiApiKey(savedKey.trim());
+          const trimmed = savedKey.trim();
+          setGeminiApiKey(trimmed);
+          geminiApiKeyRef.current = trimmed;
           addLog('[System] Custom Gemini API key loaded successfully.');
         } else {
           addLog('[System] Using default Gemini API key.');
@@ -312,12 +318,18 @@ export default function App() {
 
   // Core smart vision capture function
   const captureAndProcessImage = async (isRetry = false, retryPhotoData = null) => {
+    if (isCapturingRef.current && !isRetry) {
+      console.log('Capture already in progress, ignoring duplicate call');
+      return;
+    }
+    isCapturingRef.current = true;
     let photoData = retryPhotoData;
 
     if (!photoData) {
       if (!cameraRef.current) {
         addLog('[Error] Camera reference not ready.');
         speakAndListen('Sorry, the camera is not initialized yet.');
+        isCapturingRef.current = false;
         return;
       }
 
@@ -371,6 +383,7 @@ export default function App() {
         addLog(`[Error] Camera capture failed: ${err.message}`);
         speakAndListen('Sorry, I failed to capture the image. Please try again.');
         setCurrentScreen('home');
+        isCapturingRef.current = false;
         return;
       }
     }
@@ -383,10 +396,14 @@ export default function App() {
         Speech.speak('Analyzing image, please wait.');
       }
 
-      // 3. Send to Gemini 2.0 Flash via REST API
-      if (!geminiApiKey) {
+      // 3. Resolve active Gemini API key (checking ref, state, AsyncStorage and default)
+      const storedKey = await AsyncStorage.getItem('gemini_api_key');
+      const activeKey = (geminiApiKeyRef.current || storedKey || geminiApiKey || DEFAULT_GEMINI_API_KEY || '').trim();
+
+      if (!activeKey) {
         addLog('[Error] No Gemini API key set. Please configure it in Settings.');
         speakAndListen('Vision is not configured. Please open settings and add an API key.');
+        isCapturingRef.current = false;
         return;
       }
 
@@ -412,13 +429,13 @@ export default function App() {
         },
       };
 
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(activeKey)}`;
 
-      // Create an AbortController for a 5-second fetch timeout
+      // Create an AbortController for a 15-second fetch timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         controller.abort();
-      }, 5000);
+      }, 15000);
 
       const response = await fetch(geminiUrl, {
         method: 'POST',
@@ -430,8 +447,14 @@ export default function App() {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Gemini API error ${response.status}: ${errText}`);
+        let errDetail = '';
+        try {
+          const errJson = await response.json();
+          errDetail = errJson?.error?.message || JSON.stringify(errJson);
+        } catch (_) {
+          errDetail = await response.text();
+        }
+        throw new Error(`Gemini API error ${response.status}: ${errDetail}`);
       }
 
       const geminiData = await response.json();
@@ -447,12 +470,14 @@ export default function App() {
           addLog('[System] Description spoken. Resuming listener.');
           setCurrentScreen('home');
           setVoiceStatus('idle');
+          isCapturingRef.current = false;
           startListening();
         },
         onError: () => {
           addLog('[System] Speech failed. Resuming listener.');
           setCurrentScreen('home');
           setVoiceStatus('idle');
+          isCapturingRef.current = false;
           startListening();
         },
       });
@@ -463,7 +488,7 @@ export default function App() {
       const isTimeout = err.name === 'AbortError' || err.message.includes('timeout') || err.message.includes('aborted');
 
       if (isTimeout) {
-        addLog('[Error] Request timed out after 5 seconds.');
+        addLog('[Error] Request timed out after 15 seconds.');
         if (!isRetry) {
           addLog('[System] Initiating automatic retry...');
           Speech.speak('Network is slow, trying again.');
@@ -476,6 +501,7 @@ export default function App() {
           addLog('[Error] Retry attempt also timed out.');
           speakAndListen('Network connection timed out. Please try again later.');
           setCurrentScreen('home');
+          isCapturingRef.current = false;
           return;
         }
       }
@@ -488,6 +514,7 @@ export default function App() {
       }
       speakAndListen('Sorry, I encountered an error with the vision analysis. Please try again.');
       setCurrentScreen('home');
+      isCapturingRef.current = false;
     }
   };
 
@@ -497,6 +524,11 @@ export default function App() {
       "Here are the available voice commands. Say camera to open the camera preview. Say home or go back to return here. Say take picture or scan to analyze an image. Or say help to repeat these instructions.";
     speakAndListen(helpText);
   };
+
+  // Sync processCommand to ref so listeners always execute latest version
+  useEffect(() => {
+    processCommandRef.current = processCommand;
+  });
 
   // Voice Event Listeners setup
   useEffect(() => {
@@ -508,7 +540,11 @@ export default function App() {
       if (e.value && e.value.length > 0) {
         // Mark that a final result fired so onSpeechEnd doesn't double-process
         finalResultFiredRef.current = true;
-        processCommand(e.value[0]);
+        if (processCommandRef.current) {
+          processCommandRef.current(e.value[0]);
+        } else {
+          processCommand(e.value[0]);
+        }
       }
     };
 
@@ -565,7 +601,11 @@ export default function App() {
         !isTransitioningRef.current
       ) {
         addLog('[System] Final result missed — using partial as fallback.');
-        processCommand(lastPartialRef.current);
+        if (processCommandRef.current) {
+          processCommandRef.current(lastPartialRef.current);
+        } else {
+          processCommand(lastPartialRef.current);
+        }
         return;
       }
 
@@ -879,10 +919,12 @@ export default function App() {
                       // Reset to default
                       await AsyncStorage.removeItem('gemini_api_key');
                       setGeminiApiKey(DEFAULT_GEMINI_API_KEY);
+                      geminiApiKeyRef.current = DEFAULT_GEMINI_API_KEY;
                       addLog('[System] Reset Gemini API key to default.');
                     } else {
                       await AsyncStorage.setItem('gemini_api_key', trimmedKey);
                       setGeminiApiKey(trimmedKey);
+                      geminiApiKeyRef.current = trimmedKey;
                       addLog('[System] Custom Gemini API key saved successfully.');
                     }
                     setIsSettingsVisible(false);
@@ -902,6 +944,7 @@ export default function App() {
                   try {
                     await AsyncStorage.removeItem('gemini_api_key');
                     setGeminiApiKey(DEFAULT_GEMINI_API_KEY);
+                    geminiApiKeyRef.current = DEFAULT_GEMINI_API_KEY;
                     setTempApiKey('');
                     addLog('[System] Reset Gemini API key to default.');
                     setIsSettingsVisible(false);

@@ -395,7 +395,7 @@ export default function App() {
     }
 
     try {
-      addLog('[Gemini] Sending image to Gemini 2.0 Flash...');
+      addLog('[Gemini] Sending image to Gemini 3.6 Flash...');
       if (isRetry) {
         Speech.speak('Connection slow. Retrying analysis.');
       } else {
@@ -430,18 +430,23 @@ export default function App() {
           },
         ],
         generationConfig: {
-          maxOutputTokens: 150,
+          // gemini-3.6-flash is a thinking model: internal reasoning consumes
+          // output tokens (typically ~200-500 "thoughts"). 1024 leaves enough
+          // room for a full 2-sentence visible answer after thinking completes.
+          maxOutputTokens: 1024,
           temperature: 0.4,
         },
       };
 
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(activeKey)}`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(activeKey)}`;
 
-      // Create an AbortController for a 15-second fetch timeout
+      // Create an AbortController for a 30-second fetch timeout.
+      // Thinking models like gemini-3.6-flash take ~10-15s per request,
+      // so the previous 15s limit was too tight.
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         controller.abort();
-      }, 15000);
+      }, 30000);
 
       const response = await fetch(geminiUrl, {
         method: 'POST',
@@ -494,7 +499,7 @@ export default function App() {
       const isTimeout = err.name === 'AbortError' || err.message.includes('timeout') || err.message.includes('aborted');
 
       if (isTimeout) {
-        addLog('[Error] Request timed out after 15 seconds.');
+        addLog('[Error] Request timed out after 30 seconds.');
         if (!isRetry) {
           addLog('[System] Initiating automatic retry...');
           Speech.speak('Network is slow, trying again.');
@@ -828,7 +833,7 @@ export default function App() {
                 <View style={styles.cameraStatusCard}>
                   <ActivityIndicator size="small" color="#10B981" />
                   <Text style={styles.cameraStatusText}>
-                    {voiceStatus === 'processing_vision' ? 'Sending to Gemini 2.0 Flash...' : 'Listening for "take picture"...'}
+                    {voiceStatus === 'processing_vision' ? 'Sending to Gemini 3.6 Flash...' : 'Listening for "take picture"...'}
                   </Text>
                 </View>
               </View>

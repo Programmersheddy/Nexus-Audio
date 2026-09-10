@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as ImageManipulator from 'expo-image-manipulator';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
 // ─── Gemini API Configuration ───────────────────────────────────────────────
 const DEFAULT_GEMINI_API_KEY = ''; // Enter your Gemini API key via the Settings (⚙️) button in the app
@@ -360,11 +360,17 @@ export default function App() {
 
         addLog('[Camera] Optimizing image size...');
         // Resize width to max 1024px (maintaining aspect ratio) and compress to 0.5
-        const manipResult = await ImageManipulator.manipulateAsync(
-          photo.uri,
-          [{ resize: { width: 1024 } }],
-          { compress: 0.5, base64: true }
-        );
+        // using the modern contextual API — manipulateAsync() is deprecated since SDK 52.
+        const context = ImageManipulator.manipulate(photo.uri).resize({ width: 1024 });
+        const image = await context.renderAsync();
+        const manipResult = await image.saveAsync({
+          compress: 0.5,
+          format: SaveFormat.JPEG,
+          base64: true,
+        });
+        // These shared objects are no longer needed — free the native resources.
+        context.release();
+        image.release();
 
         if (!manipResult || !manipResult.base64) {
           throw new Error('Failed to encode optimized image to Base64');

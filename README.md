@@ -10,6 +10,15 @@ The current version of Nexus Audio features a robust, working core focusing on h
 * **Real-Time Multimodal Analysis:** Integrates Google Gemini AI to analyze environmental context, read documents, and provide immediate audio/text feedback.
 * **Dynamic API Management:** Secure local storage for custom user API keys, ensuring smooth runtime execution.
 
+### 📦 Latest Release
+| | |
+|---|---|
+| **Version** | 1.0.0 (Expo SDK 57) |
+| **AI Engine** | Google Gemini 3.6 Flash (vision) |
+| **Latest APK** | [⬇️ Download](https://expo.dev/artifacts/eas/BHL7GDwFfLdB7clSqKTRB92i49bbB-1tBiNYhwVCOcQ.apk) (89.6 MB) |
+| **Build date** | 2026-09-10 (expires 2026-09-24) |
+| **Changes** | Vision pipeline migrated to `gemini-3.6-flash` after Google retired `gemini-2.0-flash` (HTTP 404). Token budget raised to 1024 for the thinking model, API timeout raised to 30s. |
+
 ---
 
 ## 🗺️ Full Product Vision & Roadmap
@@ -67,9 +76,9 @@ Nexus Audio is built to scale into a comprehensive ecosystem addressing educatio
 
 ### 2. Downloading and Installing the App
 1. **Open the installation link** in your Android browser:
-   https://expo.dev/accounts/programmersheddy/projects/THE-AUDIO/builds/31ee69b5-6fdd-477e-a212-dfacb15978da
-   (You can also scan the QR code provided separately to open the link directly.)
-2. **Download the APK file** — tap the Download button, wait for the download to finish, then tap the notification to begin installation.
+   https://expo.dev/artifacts/eas/BHL7GDwFfLdB7clSqKTRB92i49bbB-1tBiNYhwVCOcQ.apk
+   (Or download directly: [⬇️ Download the latest APK](https://expo.dev/artifacts/eas/BHL7GDwFfLdB7clSqKTRB92i49bbB-1tBiNYhwVCOcQ.apk))
+2. **Download the APK file** — tap the link, wait for the download to finish (89.6 MB), then tap the notification to begin installation.
 3. **Allow installation from unknown sources** — when prompted "Your phone is not allowed to install unknown apps from this source," tap **Settings** → toggle ON **"Allow from this source"** → press back.
 4. **Install the app** — tap **Install**, then **Open** (or find the app icon on your home screen later).
 
@@ -143,9 +152,9 @@ The coloured dot at the top-right of the screen tells you what the app is doing:
 ---
 
 ## 🛠️ Tech Stack
-* **Mobile Framework:** React Native, Expo
-* **AI Engine:** Google Gemini API (Multimodal / Vision)
-* **State & Storage:** React hooks & Secure Local Storage
+* **Mobile Framework:** React Native 0.86, Expo SDK 57
+* **AI Engine:** Google Gemini 3.6 Flash API (Multimodal / Vision)
+* **State & Storage:** React hooks, AsyncStorage & Secure Local Storage
 
 ---
 

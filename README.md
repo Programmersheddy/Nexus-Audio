@@ -15,9 +15,9 @@ The current version of Nexus Audio features a robust, working core focusing on h
 |---|---|
 | **Version** | 1.0.0 (Expo SDK 57) |
 | **AI Engine** | Google Gemini 3.6 Flash (vision) |
-| **Latest APK** | [⬇️ Download](https://expo.dev/artifacts/eas/BHL7GDwFfLdB7clSqKTRB92i49bbB-1tBiNYhwVCOcQ.apk) (89.6 MB) |
-| **Build date** | 2026-09-10 (expires 2026-09-24) |
-| **Changes** | Vision pipeline migrated to `gemini-3.6-flash` after Google retired `gemini-2.0-flash` (HTTP 404). Token budget raised to 1024 for the thinking model, API timeout raised to 30s. |
+| **Latest APK** | [⬇️ Download](https://expo.dev/artifacts/eas/zS7K90jXUxCOyyhsiQnu_G3HreGi43SJpmVLg7qmZUo.apk) (89.6 MB) |
+| **Build date** | 2026-09-12 (expires 2026-09-26) |
+| **Changes** | Rebranded app identity: new Android package `com.programmersheddy.nexusaudio` (replaces `com.programmersheddy.THEAUDIO`), fresh signing keystore, and dedicated EAS project `@programmersheddy/nexus-audio`. Installs as a fresh app — uninstall any old THE-AUDIO build first. |
 
 ---
 
@@ -76,8 +76,8 @@ Nexus Audio is built to scale into a comprehensive ecosystem addressing educatio
 
 ### 2. Downloading and Installing the App
 1. **Open the installation link** in your Android browser:
-   https://expo.dev/artifacts/eas/BHL7GDwFfLdB7clSqKTRB92i49bbB-1tBiNYhwVCOcQ.apk
-   (Or download directly: [⬇️ Download the latest APK](https://expo.dev/artifacts/eas/BHL7GDwFfLdB7clSqKTRB92i49bbB-1tBiNYhwVCOcQ.apk))
+   https://expo.dev/artifacts/eas/zS7K90jXUxCOyyhsiQnu_G3HreGi43SJpmVLg7qmZUo.apk
+   (Or download directly: [⬇️ Download the latest APK](https://expo.dev/artifacts/eas/zS7K90jXUxCOyyhsiQnu_G3HreGi43SJpmVLg7qmZUo.apk))
 2. **Download the APK file** — tap the link, wait for the download to finish (89.6 MB), then tap the notification to begin installation.
 3. **Allow installation from unknown sources** — when prompted "Your phone is not allowed to install unknown apps from this source," tap **Settings** → toggle ON **"Allow from this source"** → press back.
 4. **Install the app** — tap **Install**, then **Open** (or find the app icon on your home screen later).

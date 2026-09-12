@@ -1,14 +1,14 @@
 {
   "expo": {
-    "name": "THE-AUDIO",
-    "slug": "THE-AUDIO",
+    "name": "Nexus Audio",
+    "slug": "nexus-audio",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.programmersheddy.theaudio",
+      "bundleIdentifier": "com.programmersheddy.nexusaudio",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Nexus Audio needs microphone access to listen for voice commands.",
         "NSSpeechRecognitionUsageDescription": "Nexus Audio needs speech recognition to process voice commands.",
@@ -26,7 +26,7 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA"
       ],
-      "package": "com.programmersheddy.THEAUDIO"
+      "package": "com.programmersheddy.nexusaudio"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -42,8 +42,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow THE-AUDIO to access the camera for smart vision analysis.",
-          "microphonePermission": "Allow THE-AUDIO to access the microphone."
+          "cameraPermission": "Allow Nexus Audio to access the camera for smart vision analysis.",
+          "microphonePermission": "Allow Nexus Audio to access the microphone."
         }
       ],
       [
